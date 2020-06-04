@@ -8,8 +8,8 @@ to handle proteins
 """
 
 from . import ligand as lig, _hndlWater
-from ..parsers import pdb as hpdb
-from .._global import _Global as gbl
+from mimicpy.parsers import pdb as hpdb
+from mimicpy._global import _Global as gbl
 import urllib.request as req
 from collections import defaultdict, OrderedDict
 

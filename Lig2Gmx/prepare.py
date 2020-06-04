@@ -7,15 +7,9 @@ MM topology, MPT and QM region/CPMD script
 
 """
 
-from ..parsers import pdb as hpdb
-from .selector import Selector
-from .base import BaseHandle
-from .._global import _Global as _global
-from . import _qmhelper
-from ..parsers.mpt import Reader as MPTReader, write as mptwrite
-from ..utils.constants import hartree_to_ps, bohr_rad
-from ..scripts import cpmd, mdp
-from collections import defaultdict
+from mimicpy.parsers import pdb as hpdb
+from mimicpy.core.base import BaseHandle
+from mimicpy._global import _Global as _global
 
 class MM(BaseHandle):
     """

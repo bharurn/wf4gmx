@@ -8,8 +8,8 @@ using the Generalized Amber Force Field (GAFF)
 
 """
 
-from .._global import _Global as _global
-from ..utils.errors import ExecutionError
+from mimicpy._global import _Global as _global
+from mimicpy.utils.errors import ExecutionError
 
 def _cleanprep(mol, prep_to_pdb):
     prep = _global.host.read(f'{mol}.prep')

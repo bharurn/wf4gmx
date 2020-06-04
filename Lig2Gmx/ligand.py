@@ -6,11 +6,10 @@ This module contains NonStdLigand and StdLigand classes to load ligands and prot
 
 """
 
-from ..parsers import pdb as hpdb
+from mimicpy.parsers import pdb as hpdb
 from . import _addH, _getItp
-from ..utils.fstring import f
-from .._global import _Global as _global
-from ..utils.errors import EnvNotSetError
+from mimicpy._global import _Global as _global
+from mimicpy.utils.errors import EnvNotSetError
 
 class NonStdLigand: 
     
@@ -119,19 +118,19 @@ class NonStdLigand:
         
         pdb, chains, name, elems = _addH.do(mol, pH)
         
-        _global.host.write(pdb, f(name,'.pdb'))
+        _global.host.write(pdb, f"{name}.pdb")
         
         print("Generating Gaussian input file using AmberTools Antechamber..")
         
-        _global.host.run(f("antechamber -i {name}.pdb -fi pdb -o {name}.com -fo gcrt -nc {nc}"))
+        _global.host.run(f"antechamber -i {name}.pdb -fi pdb -o {name}.com -fo gcrt -nc {nc}")
         
         _global.host.query_rate = 30
-        _global.host.redirectStdout(f(name,'.out')) # add this to local _global.host
+        _global.host.redirectStdout(f"{name}.out") # add this to local _global.host
         
         if _global.gauss is None:
             raise EnvNotSetError("No _global.gaussian executable given!")
         
-        _global.host.runbg(f("{_global.gauss} {name}.com {name}.out"), query_rate=0)
+        _global.host.runbg(f"{_global.gauss} {name}.com {name}.out", query_rate=0)
         
         print("Gaussian run submitted as a background job..\n"
               "Do not close host and/or this script untill the run is complete!!\n"
@@ -140,7 +139,7 @@ class NonStdLigand:
     @staticmethod
     def getPrepGauss(mol):
         print(f"Converting _global.gaussian output file to Amber prep..")
-        _global.host.checkFile(f(mol,".out"))
+        _global.host.checkFile(f"{mol}.out")
         print('Running AmberTools antechamber..')
         out = _global.host.run(f"{_global.antechamber} -i {mol}.out -fi gout -o {mol}.prep -fo prepi -c resp -rn {mol}")
         print(f"Antechamber output dumped...\nResidue {mol} created in {mol}.prep..")
