@@ -107,7 +107,7 @@ def do(mol, conv):
     tleap_in += f"saveamberparm {mol} {mol}.prmtop {mol}.inpcrd\nquit"
     
     _global.logger.write('info', "Running AmberTools LEaP..")
-    cmd = f'{_global.tleap} -f -'
+    cmd = f'tleap -f -'
     output = _global.host.run(cmd, stdin=tleap_in)
     
     log = '\n Running'+ tleap_in + '..\n' + output + '\n'
@@ -119,7 +119,7 @@ def do(mol, conv):
     _global.logger.write('debug', f"Output saved to {mol}.prmtop and {mol}.inpcrd..")
     
     _global.logger.write('info', "Converting to Gromacs topology using Acpype..")
-    cmd = f'{_global.acpype} -p {mol}.prmtop -x {mol}.inpcrd'
+    cmd = f'acpype -p {mol}.prmtop -x {mol}.inpcrd'
     output = _global.host.run(cmd)
     
     log = f"Running {cmd}..\n" + output + '\n'
