@@ -11,7 +11,7 @@ from .base import BaseHandle
 from .._global import _Global as _global
 from ..utils.errors import EnvNotSetError
 from ..utils.constants import hartree_to_ps
-from . import _qmhelper
+#from . import _qmhelper
 
 class MD(BaseHandle):
     """
@@ -19,6 +19,11 @@ class MD(BaseHandle):
     Inherits from .core.base.BaseHandle
     
     """
+    def __init__(self, status=None, settings=None):
+        self.jobscript = None
+        if settings: self.setSlurmSettings()
+        super().__init__(status)
+        
     def mdrun(self, new, **kwargs):
         """Execute gmx mdrun"""
         
@@ -75,7 +80,7 @@ class MD(BaseHandle):
             self.gmx('convert-tpr', s = self.getcurrent('tpr'), extend = extend, o = f'{new}.tpr', dirc=new)
             out = self.mdrun(new, s = f'{new}.tpr', cpi = '{cpt}.cpt', noappend = noappend, dirc=new)
         
-        self.saveToYaml()
+        self.toYaml()
         return out
         
     def run(self, mdp, **kwargs):
@@ -100,11 +105,11 @@ class MD(BaseHandle):
         
         out = self.mdrun(f'{new}', dirc=_dir)
         
-        self.saveToYaml()
+        self.toYaml()
         
         return out
         
-class MiMiC(BaseHandle):
+class MiMiC(MD):
     """
     Runs MiMiC runs by running both gmx mdrun and cpmd
     Inherits from .core.base.BaseHandle
@@ -202,6 +207,6 @@ class MiMiC(BaseHandle):
             if not _global.host.isLocal():
                 _global.logger.write('info', "Please do not close remote host until the job is done!")
             
-        self.saveToYaml()
+        self.toYaml()
         
         

@@ -7,11 +7,11 @@ MM topology, MPT and QM region/CPMD script
 
 """
 
-from mimicpy.parsers import pdb as hpdb
-from mimicpy.core.base import BaseHandle
-from mimicpy._global import _Global as _global
+#from mimicpy.parsers import pdb as hpdb
+from .base import BaseHandle
+from .._global import _Global as _global
 
-class MM(BaseHandle):
+class Prepare(BaseHandle):
     """
     Prepare MM topology, by running pdb2gmx, editconf, solvate, etc.
     Inherits from .core.base.BaseHandle
@@ -29,10 +29,10 @@ class MM(BaseHandle):
         self.his_str = '' # string version of list of histidine protonation states, input to pdb2gmx
         super().__init__(status) # call BaseHandle constructor to init _status dict
         
-        if self._status['prepMM'] == '':
-            self.dir = 'prepareMM' # dir of handle, can be changed by user
+        if self._status['prep'] == '':
+            self.dir = 'prepare' # dir of handle, can be changed by user
         else:
-            self.dir = self._status['prepMM']
+            self.dir = self._status['prep']
             
         _global.logger.write('debug', f'Set handle directory as {self.dir}..')
         

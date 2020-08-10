@@ -142,7 +142,7 @@ class Base(ABC):
             raise SlurmBatchError(jbs, "No commands found!")
         
         jid = 0
-        def _sbatch_err(txt):
+        def _sbatch_err(cmd, txt):
             if 'error' in txt.lower():
                 raise SlurmBatchError(jbs, txt)
             else:

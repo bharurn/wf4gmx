@@ -14,7 +14,7 @@ from ..utils.logger import Logger, LogString
 import sys
 from abc import ABC, abstractmethod
 
-status_file = '_status.yaml'
+status_file = '.status.yaml'
 
 class BaseHandle(ABC):
     """
@@ -24,27 +24,21 @@ class BaseHandle(ABC):
     """
     
     @abstractmethod
-    def __init__(self, topol_dir=None, status=None, settings=None):
+    def __init__(self, topol_dir=None, status=None):
         """Init status and log string"""
         self.savestatus = True
         
         if not status: # if status passed is none, read from yaml
             status = BaseHandle.__readstatus()
             if not status: # if that too is none, create new status variable
-                status = {'prepMM': '', 'run': ['']}
+                status = {'prep': '', 'run': ['']}
         
         self._status = status # set _status
-        
-        if topol_dir != None:
-            self._status['prepMM'] = topol_dir
             
         self.gmxlog = LogString() # log string of standard ouput from all gmx commands
         # init logger with gmx log string, and notes redirected to stderr
         self.logger = Logger(gmxlog=self.gmxlog, gmxnotes=sys.stderr)
         self.__current_cmd = 'gmx'
-        
-        self.jobscript = None
-        if settings: self.setSlurmSettings()
     
     def setSlurmSettings(self, settings):
         """Set the Slurm settings from a jobscript"""
@@ -71,7 +65,7 @@ class BaseHandle(ABC):
         if dirc.strip() == '': return
         
         _global.host.mkdir(dirc)
-        if key == 'prepMM': # add the correct key
+        if key == 'prep': # add the correct key
             self._status[key] = dirc
         elif dirc not in self._status['run']: # add to run list
             self._status['run'].append(dirc)
@@ -81,17 +75,17 @@ class BaseHandle(ABC):
         
         _dir = _global.host.pwd()+'/' # get cwd
         
-        if ext == 'top' or ext == 'mpt':
+        if ext == 'top':
             # if top/mpt go directly to prepMM folder
-            return _dir+BaseHandle.__getFile(self._status['prepMM'], ext)
+            return _dir+BaseHandle.__getFile(self._status['prep'], ext)
         elif ext == 'mimic-tpr':
             # if mimic tpr is asked for go directly to prepQM folder
-            return _dir+BaseHandle.__getFile(self._status['prepQM'], ext)
+            return _dir+BaseHandle.__getFile(self._status['mimic'], ext)
         
         # if topology is not asked for, then it is run files (trr,cpt,etc.)
         # get the list of folders from run key, also tack on the prepMM and prepQM folder
         # just in case pdb, etc. files were asked for
-        run =  [self._status['prepMM'], self._status['prepQM']] + self._status['run']
+        run =  [self._status['prep'], self._status['mimic']] + self._status['run']
         
         for i,d in enumerate(run[::-1]): # loop in reverse, latests to earliest
             ret = BaseHandle.__getFile(d, ext)
@@ -121,7 +115,7 @@ class BaseHandle(ABC):
         _dir = _global.host.pwd()+'/' # get cwd
         
         lst = []
-        run =  [self._status['prepMM'], self._status['prepQM']] + self._status['run']
+        run =  [self._status['prep'], self._status['mimic']] + self._status['run']
         
         for i,d in enumerate(run[::-1]): # loop in reverse, latests to earliest
             ret = BaseHandle.__getFile(d, ext)
@@ -139,12 +133,9 @@ class BaseHandle(ABC):
         # get list of all files in dirc with extension ext, ignore folders
         lst = _global.host.ls(dirc=dirc, file_eval=lambda a: True if a.endswith(ext) else False, dir_eval=lambda a: False)
         
-        if ext == 'cpt': # gromacs saves multiple cpt files, take only the first one
-            lst = [l for l in lst if '_prev' or '_step' not in l]
-        
         if lst == []: return None # if nothing was found
         # more than one was found, raise exception
-        elif len(lst) > 1: raise MiMiCPyError(f"More than one current file found with extension {ext}!"
+        elif len(lst) > 1: _global.logger.write('warning', f"More than one current file found with extension {ext}, choosing first file."
                                         f"\nFiles found: {','.join(lst)}")
         if dirc.strip() != '': dirc += '/'
             
