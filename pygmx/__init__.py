@@ -12,11 +12,12 @@ from .handles.prepare import Prepare
 from .handles.analysis import Analyze
 from .handles.simulate import MD, MiMiC
 from .scripts.slurm import Slurm
-from .scripts.mdp import MD
-from .shell import shell
+from .scripts.mdp import MDP
+from .shell.shell import Local, Remote
 from ._global import _Global as gbl
 from .utils.logger import Logger
 from .utils.errors import MiMiCPyError
+from . import calc
 import sys
 
 def setHost(dirc='.', *args, path=None):
@@ -25,9 +26,9 @@ def setHost(dirc='.', *args, path=None):
     closeHost()
     
     if ':' not in dirc:
-        gbl.host = shell.Local(dirc, path, *args)
+        gbl.host = Local(dirc, path, *args)
     else:
-        gbl.host = shell.Remote(dirc, path, *args)
+        gbl.host = Remote(dirc, path, *args)
 
 def getHost():
     """Convenience function to return host"""
@@ -67,5 +68,5 @@ def closeHost():
     """Convenience function to close host"""
     gbl.host.__del__()
     
-gbl.host = shell.Local('.', None)
+gbl.host = Local('.', None)
 gbl.logger = Logger(info=sys.stdout, debug=sys.stdout, debug2=None, warning=sys.stderr)

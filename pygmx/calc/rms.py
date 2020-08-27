@@ -1,13 +1,8 @@
-from ..dashboard import PlotBoxDF
 import pandas as pd
-import MDAnalysis as mda
-from MDAnalysis.analysis import align
-from MDAnalysis.analysis.rms import RMSF
 
-# rms calculation from mda
-
-@PlotBoxDF
 def d(top, trr, selections):
+    from MDAnalysis.analysis import align
+    import MDAnalysis as mda
     u = mda.Universe(top)
 
     ref = mda.Universe(top)
@@ -25,8 +20,8 @@ def d(top, trr, selections):
     df = pd.DataFrame(rmsd, columns=('Step', 'Time', *cols))
     return df.set_index(['Step', 'Time'])
 
-#@PlotBoxDF(x_axis=['Name', 'ID'])
 def f(u, selection, align_with='protein'):
+    from MDAnalysis.analysis.rms import RMSF
     align.AlignTraj(u, u, select=align_with, in_memory=True).run()
     
     sele = u.select_atoms(selection)
