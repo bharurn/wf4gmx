@@ -8,9 +8,11 @@ This initializer script of mimicpy
 
 #from .system.ligand import NonStdLigand, StdLigand
 #from .system.protein import Protein
-from .core.prepare import Prepare
-from .core.slurm import Slurm
-from .core import simulate
+from .handles.prepare import Prepare
+from .handles.analysis import Analyze
+from .handles.simulate import MD, MiMiC
+from .scripts.slurm import Slurm
+from .scripts.mdp import MD
 from .shell import shell
 from ._global import _Global as gbl
 from .utils.logger import Logger

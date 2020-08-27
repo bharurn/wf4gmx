@@ -14,8 +14,6 @@ from ..utils.logger import Logger, LogString
 import sys
 from abc import ABC, abstractmethod
 
-status_file = '.status.yaml'
-
 class BaseHandle(ABC):
     """
     Contains functions/variables common to:
@@ -24,8 +22,12 @@ class BaseHandle(ABC):
     """
     
     @abstractmethod
-    def __init__(self, topol_dir=None, status=None):
+    def __init__(self, status_file=None,status=None):
         """Init status and log string"""
+        
+        if status_file is None: status_file = '.status.yaml'
+        self.status_file = status_file
+        
         self.savestatus = True
         
         if not status: # if status passed is none, read from yaml
@@ -158,23 +160,23 @@ class BaseHandle(ABC):
     def toYaml(self):
         """Save _status to yaml"""
         if not self.savestatus: return
-        _global.logger.write('debug', f"Saving status to {status_file}..")
+        _global.logger.write('debug', f"Saving status to {self.status_file}..")
         y = yaml.dump(self._status)
-        _global.host.write(y, status_file)
+        _global.host.write(y, self.status_file)
     
     @classmethod
     def fromYaml(cls, *args, **kwargs):
        """Transfer _status from status file to new handle"""
        _status = BaseHandle.__readstatus()
-       if _status is None: _global.logger.write('warning', f"{status_file} does not exist, skipping..")
+       if _status is None: _global.logger.write('warning', f"{self.status_file} does not exist, skipping..")
        return cls(status=BaseHandle.__readstatus(), *args, **kwargs)
    
     @staticmethod
     def __readstatus():
-       if not _global.host.fileExists(status_file): return None
+       if not _global.host.fileExists(self.status_file): return None
         
-       _global.logger.write('debug', f"Loading status from {status_file}..")
-       txt = _global.host.read(status_file)
+       _global.logger.write('debug', f"Loading status from {self.status_file}..")
+       txt = _global.host.read(self.status_file)
        return yaml.safe_load(txt)
     ##
     ##

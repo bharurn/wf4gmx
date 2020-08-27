@@ -11,7 +11,6 @@ from .base import BaseHandle
 from .._global import _Global as _global
 from ..utils.errors import EnvNotSetError
 from ..utils.constants import hartree_to_ps
-#from . import _qmhelper
 
 class MD(BaseHandle):
     """
@@ -19,10 +18,10 @@ class MD(BaseHandle):
     Inherits from .core.base.BaseHandle
     
     """
-    def __init__(self, status=None, settings=None):
+    def __init__(self, status_file=None, status=None, settings=None):
         self.jobscript = None
         if settings: self.setSlurmSettings()
-        super().__init__(status)
+        super().__init__(status_file, status)
         
     def mdrun(self, new, **kwargs):
         """Execute gmx mdrun"""
@@ -78,7 +77,7 @@ class MD(BaseHandle):
             out = self.mdrun(new, s = f'{new}.tpr', cpi = self.getcurrent('cpt'), noappend = noappend, dirc=new)
         elif extend != 0:
             self.gmx('convert-tpr', s = self.getcurrent('tpr'), extend = extend, o = f'{new}.tpr', dirc=new)
-            out = self.mdrun(new, s = f'{new}.tpr', cpi = '{cpt}.cpt', noappend = noappend, dirc=new)
+            out = self.mdrun(new, s = f'{new}.tpr', cpi = self.getcurrent('cpt'), noappend = noappend, dirc=new)
         
         self.toYaml()
         return out

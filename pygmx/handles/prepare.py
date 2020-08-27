@@ -27,7 +27,7 @@ class Prepare(BaseHandle):
         self._solavte_kwargs = {'cs': 'spc216.gro'} # parameters to pass to gmx solvate
         self._topol_kwargs = {'water': 'tip3p', 'ff': 'amber99sb-ildn'} # parameters to pass to gmx pdb2gmx
         self.his_str = '' # string version of list of histidine protonation states, input to pdb2gmx
-        super().__init__(status) # call BaseHandle constructor to init _status dict
+        super().__init__(None,status) # call BaseHandle constructor to init _status dict
         
         if self._status['prep'] == '':
             self.dir = 'prepare' # dir of handle, can be changed by user
