@@ -22,19 +22,16 @@ class BaseHandle(ABC):
     """
     
     @abstractmethod
-    def __init__(self, status_file=None,status=None):
+    def __init__(self, status_file=None, status=None):
         """Init status and log string"""
         
         if status_file is None: status_file = '.status.yaml'
-        self.status_file = status_file
         
         self.savestatus = True
         
         if not status: # if status passed is none, read from yaml
-            status = BaseHandle.__readstatus()
-            if not status: # if that too is none, create new status variable
-                status = {'prep': '', 'run': ['']}
-        
+            status = BaseHandle.__readstatus(status_file)
+            
         self._status = status # set _status
             
         self.gmxlog = LogString() # log string of standard ouput from all gmx commands
@@ -149,13 +146,6 @@ class BaseHandle(ABC):
     #### Methods dealing with loading from/writing to status file
     ##
     ##
-    @classmethod
-    def continueFrom(cls, session, *args, **kwargs):
-        """Transfer _status from session to new handle"""
-        if not hasattr(session, '_status'):
-            raise MiMiCPyError("No simulation status variables were found for session!")
-        
-        return cls(status=session._status, *args, **kwargs)
     
     def toYaml(self):
         """Save _status to yaml"""
@@ -164,20 +154,18 @@ class BaseHandle(ABC):
         y = yaml.dump(self._status)
         _global.host.write(y, self.status_file)
     
-    @classmethod
-    def fromYaml(cls, *args, **kwargs):
-       """Transfer _status from status file to new handle"""
-       _status = BaseHandle.__readstatus()
-       if _status is None: _global.logger.write('warning', f"{self.status_file} does not exist, skipping..")
-       return cls(status=BaseHandle.__readstatus(), *args, **kwargs)
-   
-    @staticmethod
-    def __readstatus():
-       if not _global.host.fileExists(self.status_file): return None
+    def __readstatus(status_file):
         
-       _global.logger.write('debug', f"Loading status from {self.status_file}..")
-       txt = _global.host.read(self.status_file)
-       return yaml.safe_load(txt)
+        status = {'prep': '', 'mimic':'', 'run': ['']}
+        
+        if not _global.host.fileExists(status_file): return status
+        
+        _global.logger.write('debug', f"Loading status from {status_file}..")
+        txt = _global.host.read(status_file)
+        
+        status.update(yaml.safe_load(txt))
+        return status
+        
     ##
     ##
     ###END

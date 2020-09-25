@@ -1,5 +1,6 @@
 from .base import BaseHandle
 from .._global import _Global as _global
+from ..utils.logger import LogString
 import re
 import pandas as pd
 import numpy as np
@@ -7,17 +8,19 @@ import numpy as np
 class Analyze(BaseHandle):
     def __init__(self, status_file=None, status=None):
         super().__init__(status_file, status)
-        self.xvg = mimicpy.utils.logger.LogString()
+        self.xvg = LogString()
         self.logger.add(xvg=self.xvg)
-        self.u = None
-        getUni()
+        self.__getUni()
         
-    def getUni(self):
-        files = [self.getcurrent('tpr')]
-        files += self.gethistory('trr')[::-1]
-        import MDAnalysis as mda
-        self.u = mda.Universe(files[0], files[1:])
-        return uni
+    def __getUni(self):
+        try:
+            files = [self.getcurrent('tpr')]
+            files += self.gethistory('trr')[::-1]
+        except FileNotFoundError as e:
+            self.u = None
+        else:
+            import MDAnalysis as mda
+            self.u = mda.Universe(files[0], files[1:])
         
     def __xvg_df(self, cmd, prev_files):
         new_files = _global.host.ls()
