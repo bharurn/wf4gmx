@@ -27,10 +27,12 @@ class BaseHandle(ABC):
         
         if status_file is None: status_file = '.status.yaml'
         
+        self.status_file = status_file
+        
         self.savestatus = True
         
         if not status: # if status passed is none, read from yaml
-            status = BaseHandle.__readstatus(status_file)
+            status = self.__readstatus()
             
         self._status = status # set _status
             
@@ -154,14 +156,14 @@ class BaseHandle(ABC):
         y = yaml.dump(self._status)
         _global.host.write(y, self.status_file)
     
-    def __readstatus(status_file):
+    def __readstatus(self):
         
         status = {'prep': '', 'mimic':'', 'run': ['']}
         
-        if not _global.host.fileExists(status_file): return status
+        if not _global.host.fileExists(self.status_file): return status
         
-        _global.logger.write('debug', f"Loading status from {status_file}..")
-        txt = _global.host.read(status_file)
+        _global.logger.write('debug', f"Loading status from {self.status_file}..")
+        txt = _global.host.read(self.status_file)
         
         status.update(yaml.safe_load(txt))
         return status

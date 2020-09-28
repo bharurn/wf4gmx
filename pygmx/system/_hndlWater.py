@@ -8,7 +8,7 @@ module to strip water molecules within a certain radius
 """
 
 import numpy as np
-from mimicpy.parsers import pdb as hpdb
+from . import _hndlpdb as hpdb
 
 def _getSphere(coords):
     center = coords.mean(0)
@@ -38,7 +38,9 @@ def _getCoords(pdb, chain=''):
 def coordsWithin(res, chain, hoh, dist):
     cen, rad = _getSphere(_getCoords(res, chain)[0])
     coords, idl = _getCoords(hoh)
+    
     dist_vals = np.linalg.norm(coords - cen, axis=1)
     idx = np.where(dist_vals < (rad+dist))[0]
+    print(idx)
     return [idl[i] for i in idx]
 	

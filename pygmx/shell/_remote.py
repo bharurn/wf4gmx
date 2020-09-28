@@ -104,7 +104,6 @@ class Shell:
         # kill it in the deconstructor
     
     def run(self, cmd, stdin=None, hook=None, fresh=False, dirc=''):
-        
         if not fresh and self.loader_str:
             cmd = self.loader_str + ' ; ' + cmd
         

@@ -6,10 +6,10 @@ This module contains NonStdLigand and StdLigand classes to load ligands and prot
 
 """
 
-from mimicpy.parsers import pdb as hpdb
+from . import _hndlpdb as hpdb
 from . import _addH, _getItp
-from mimicpy._global import _Global as _global
-from mimicpy.utils.errors import EnvNotSetError
+from .._global import _Global as _global
+from ..utils.errors import EnvNotSetError
 
 class NonStdLigand: 
     
@@ -103,7 +103,7 @@ class NonStdLigand:
     def fromFile(cls, file, pH=7, prep2pdb={}):
         _global.host.checkFile(f'{file}.sdf')
         
-        mol = _global.host.read(file)
+        mol = _global.host.read(f'{file}.sdf')
         
         print(f"Creating non standard ligand from {file}..")
         
@@ -159,7 +159,7 @@ class StdLigand(NonStdLigand):
     def fromFile(cls, file):
         _global.host.checkFile(f'{file}.sdf')
         
-        mol = _global.host.read(file)
+        mol = _global.host.read(f'{file}.sdf')
         
         print(f"Creating standard ligand from {file}..")
         

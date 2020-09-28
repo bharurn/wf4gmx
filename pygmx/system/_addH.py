@@ -7,8 +7,8 @@ module to protonate ligands and convert sdf to pdf
 
 """
 
-from mimicpy.parsers import pdb as hpdb
-from mimicpy._global import _Global as _global
+from . import _hndlpdb as hpdb
+from .._global import _Global as _global
 import re
 from mimicpy.utils.errors import ExecutionError
 

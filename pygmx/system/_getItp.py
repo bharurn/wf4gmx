@@ -8,8 +8,8 @@ using the Generalized Amber Force Field (GAFF)
 
 """
 
-from mimicpy._global import _Global as _global
-from mimicpy.utils.errors import ExecutionError
+from .._global import _Global as _global
+from ..utils.errors import ExecutionError
 
 def _cleanprep(mol, prep_to_pdb):
     prep = _global.host.read(f'{mol}.prep')
@@ -91,7 +91,7 @@ def do(mol, conv):
         
     _global.logger.write('info', f"Running AmberTools parmchk on {prep}..")
     
-    log = _global.host.run(f'{_global.parmchk} -i {prep} -f prepi -o params.frcmod..')
+    log = _global.host.run(f'{_global.parmchk} -i {prep} -f prepi -o params.frcmod')
     
     _global.logger.write('debug2', log)
     
@@ -99,16 +99,17 @@ def do(mol, conv):
     
     tleap_in = "source leaprc.gaff\n"
     tleap_in += f"loadamberprep {prep}\n"
-    #tleap_in += f"loadamberparams params.frcmod\n"
     
     if _global.host.checkFile(f"{mol}.frcmod", throw=False):
         tleap_in += f"loadamberparams {mol}.frcmod\n"
+    else:
+        tleap_in += f"loadamberparams params.frcmod\n"
     
     tleap_in += f"saveamberparm {mol} {mol}.prmtop {mol}.inpcrd\nquit"
     
     _global.logger.write('info', "Running AmberTools LEaP..")
     cmd = f'tleap -f -'
-    output = _global.host.run(cmd, stdin=tleap_in)
+    output = _global.host.run(cmd, stdin=tleap_in, hook=lambda *args: None)
     
     log = '\n Running'+ tleap_in + '..\n' + output + '\n'
     _global.logger.write('debug2', log)

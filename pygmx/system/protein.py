@@ -8,10 +8,8 @@ to handle proteins
 """
 
 from . import ligand as lig, _hndlWater
-from mimicpy.parsers import pdb as hpdb
-from mimicpy._global import _Global as gbl
-import urllib.request as req
-from collections import defaultdict, OrderedDict
+from .._global import _Global as gbl
+from collections import OrderedDict
 
 class Protein:
    
@@ -67,66 +65,8 @@ class Protein:
       self.hoh_mols = len(ids)
       
       command = '\|'.join(ids)
-    
-      self.water = gbl.host.run(f'grep {command}', stdin=self.water)
-    
-   @classmethod
-   def fromRCSB(cls, pdbid, chains=None, howToreturn=0):
-       gbl.logger.write('info', f"Accessing PDB {pdbid} from RCSB database..")
-       gbl.logger.write('debug', "Downloading PDB file..")
-          
-       url = f'http://files.rcsb.org/view/{pdbid}.pdb'
-       gbl.logger.write('debug', f"Openeing {url}..")
-       response = req.urlopen(url)
-       #response.raise_for_status()
-       
-       pdb = response.read().decode('utf-8')
-       
-       ligs = defaultdict(str)
-       
-       gbl.logger.write('info', "Downloading ligands..")
-       
-       for l in pdb.splitlines():
-            vals = hpdb.readLine(l)
-            
-            if vals['record'].strip() == 'HET':
-                
-                if chains is not None and vals['content'].split()[1] not in chains:
-                    continue
-                
-                v = vals['content'].split()[:3]
-        
-                query = '_'.join(v)
-                
-                gbl.logger.write('debug', f"Downloading ligands {v[0]}, chain {v[1]}")
-        
-                url = f"https://files.rcsb.org/cci/download/{pdbid}_{query}_NO_H.sdf"
-                gbl.logger.write('debug', f"Openeing {url}..")
-                resp = req.urlopen(url)
-                #resp.raise_for_status()
-
-                ligs[v[0]] += resp.read().decode('utf-8')
-                
-            elif vals['record'] == 'HETNAM': break
-            
-       pdb_ = ''
-       
-       for line in pdb.splitlines():
-            vals = hpdb.readLine(line)
-            
-            if vals['record'] == 'ATOM' or vals['record'] == 'HETATM':
-                if chains is None or vals['chainID'] in chains:
-                    pdb_ += line + '\n'
-       
-       if howToreturn == 0:
-           prt = cls(pdb_, pdbid)
-           for v in ligs.values():
-               prt.addLigands(lig.NonStdLigand(v))
-           gbl.logger.write('info', "Returned as protein object with ligands added..")
-           return prt
-       else:
-           gbl.logger.write('info', "Returned as raw data..")
-           return pdb_, ligs
+      
+      self.water = gbl.host.run(f"grep '{command}'", stdin=self.water)
        
    @classmethod
    def fromFile(cls, pdb):

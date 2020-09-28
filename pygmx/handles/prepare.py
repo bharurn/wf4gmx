@@ -7,7 +7,7 @@ MM topology, MPT and QM region/CPMD script
 
 """
 
-#from mimicpy.parsers import pdb as hpdb
+from ..system import _hndlpdb as hpdb
 from .base import BaseHandle
 from .._global import _Global as _global
 
@@ -64,14 +64,14 @@ class Prepare(BaseHandle):
             self.his_str = self.his_str.replace('E2', '1')
             kwargs['his'] = '' # set the his option on, so -his will be passed to pdb2gmx
         
-        self._topol_kwargs = kwargs # set custom topol kwargs
+        self._topol_kwargs.update(kwargs) # set custom topol kwargs
     
     def editconfParams(self, **kwargs): self._box_kwargs = kwargs
         
     def prepProtein(self, protein):
         """Runs gmx pdb2gmx for pure protien, and adds ligands/waters to pdb and .top in the right order"""
         
-        self.setcurrent(key='prepMM') # set the current prepMM directory to self.dir in _status dict
+        self.setcurrent(key='prep') # set the current prepMM directory to self.dir in _status dict
         
         _global.logger.write('info', 'Preparing protein topology..')
         
@@ -103,19 +103,17 @@ class Prepare(BaseHandle):
         lines = []
         splt = pdb.splitlines()
         for i, line in enumerate(splt[::-1]):
-            vals = hpdb.readLine(line) # parse PDB using system._hndlpdb functions
-            if vals['record'] != 'HETATM' and vals['record'] != 'ATOM':
-                lines.append(line) 
-            elif vals['record'] == 'HETATM' or vals['record'] == 'ATOM':
-                if vals['resName'] == 'HOH': lines.append(line)
+            vals = hpdb.readLine(line)
+            if 'resName' not in vals: continue
+            if vals['resName'] == 'HOH': lines.append(line)
+            else: break
+                
         
         _global.logger.write('info', "Combining ligand structure and topology with protein..")
         # combine protein, ligand and water in that order, so that gromacs doesn't complain about order
         conf_pdb = '\n'.join(splt[:len(splt)-i]) + '\n' + protein.ligand_pdb + '\n'.join(lines[::-1])
         
         _global.host.write(conf_pdb, conf)
-        
-        self.gmx('editconf', f = self.conf, o = self.conf1, dirc=self.dir, **self._box_kwargs)
         
         ######
         # Followinng section combines .itp data of all ligands into a single file
@@ -128,8 +126,10 @@ class Prepare(BaseHandle):
         # this is imp!! the orders have to be the same
         ######
         
+        topol = f"{self.dir}/{self.topol}"
+        
         # init atomtypes section of itp
-        top1 = (f"; Topology data for all non-standard resiudes in {protein.name} created by MiMiCPy\n"
+        top1 = (f"; Topology data for all non-standard resiudes in {protein.name} created by pygmx\n"
             "; AmberTools was used to generate topolgy parameter for Amber Force Field, conversion to GMX done using Acpype"
                     "\n\n[ atomtypes ]\n")
         top2 = '' # init rest of itp
@@ -146,34 +146,25 @@ class Prepare(BaseHandle):
             _global.host.write(lig.posre, f"{self.dir}/posre_{lig.name}.itp") # write position restraint file
             
             # add ligand to [ molecule ] section, assumed to be last section of .top
-            _global.host.run(f'echo {lig.name} {lig.chains} >> topol.top')
+            _global.host.run(f"echo '{lig.name} {lig.chains}' >> {topol}")
         
         _global.host.write(top1+'\n'+top2, f"{self.dir}/ligands.itp")
-        
-        topol = f"{self.dir}/{self.topol}"
         
         # add #include "ligands.itp" after #include "..../forcefield.itp"
         _global.host.run(r'sed -i -r "/^#include \".+.ff\/forcefield.itp\"/a #include \"ligands.itp\"" '+topol)
         # SOL is in between protein and ligand in [ molecule ]
         # we need to remove that and add it to the end, to match pdb order
-        _global.host.run('grep -v SOL topol.top > topol_.top && mv topol_.top '+topol)
+        _global.host.run(f'grep -v SOL {topol} > topol_.top && mv topol_.top '+topol)
         _global.host.run(f'echo SOL {protein.hoh_mols} >> '+topol)
-        _global.logger.write('debug', "ligands.itp added to topol.top")
+        _global.logger.write('debug', "ligands.itp added to topol file")
         
         _global.logger.write('info', 'Topology prepared..')
-        
-        nonstd_atm_types = {}
-        for name, lig in protein.ligands.items():
-            nonstd_atm_types.update( dict(zip(lig.atm_types, lig.elems)) )
-        
-        #generate MPT file
-        self.getMPT(ligs=list(protein.ligands.values()))
         
         _global.logger.write('info', "Converting to gro..")
         
         self.gmx('editconf', f = self.conf, o = self.conf1, dirc=self.dir, **self._box_kwargs)
         
-        self.saveToYaml()
+        self.toYaml()
         
     def genionParams(self, **kwargs): self._ion_kwargs = kwargs
     def solvateParams(self, **kwargs): self._solavte_kwargs = kwargs
@@ -191,28 +182,5 @@ class Prepare(BaseHandle):
         self.gmx('genion', s = self.ions_tpr, o = self.conf3, p = self.topol, dirc=self.dir, **self._ion_kwargs, stdin="SOL")
         
         _global.logger.write('info', 'Simulation box prepared..')
-        
-        self.saveToYaml()
-    
-    def prepSystem(self, sys_dir=None, ligs=None, mpt=None, guess_elems=False):
-        """Get the MPT topology, used in prepare.QM"""
-        
-        if sys_dir.strip() != '' or sys_dir.strip() != None:
-            self.dir = sys_dir
-        
-        if ligs==None: ligs = []
-        
-        # get non std residue dict from ligs
-        nonstd_atm_types = {}
-        for lig in ligs:
-            nonstd_atm_types.update( dict(zip(lig.atm_types, lig.elems)) )
-        
-        # generate proprocessed topology for now, TO DO: changed writer mpt to read from .top
-        self.grompp(mdp.MDP.defaultGenion(), self.ions, gro = self.conf2, pp = self.preproc, dirc=self.dir) 
-        
-        if mpt == None: mpt = f"{self.dir}/{self.mpt}" # if no mpt file was passed, use default value
-        else: mpt = f"{self.dir}/{mpt}"
-        
-        mptwrite(self.preproc, mpt, nonstd_atm_types, guess=guess_elems)
         
         self.toYaml()
