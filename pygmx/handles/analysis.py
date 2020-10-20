@@ -170,12 +170,12 @@ class Analyze(BaseHandle):
         return df
     
     @staticmethod
-    def distributeFrames(u, start, end, pkl_file):
+    def distribute(u, start, end, pkl_file, loader):
         def wrapper(func):
         
             ###imports
             from mpi4py import MPI
-            import time
+            import pickle
 
             comm = MPI.COMM_WORLD
             rank = comm.Get_rank()
@@ -184,7 +184,7 @@ class Analyze(BaseHandle):
             ###
         
             ###load files on rank 0
-            if rank == 0:
+            if rank == 0 and loader:
                 from tqdm import tqdm
                 pbar = tqdm(desc=f"Starting", bar_format='{l_bar}{bar}|')
             else:
@@ -194,9 +194,19 @@ class Analyze(BaseHandle):
             ###calculate start and end frames for each rank
             if end == -1: end_ = len(u.trajectory)
             else: end_ = end
-            perrank = end_//size
+            
+            perrank = (end_-start)//size
+            
+            if perrank == 0:
+                raise Exception("The number of MPI ranks are too large for the trajectory! Reduce number of ranks or increase number of frames in the trajectory.")
+            
             rank_start = start + rank*perrank
             rank_end = start + (rank+1)*perrank
+            
+            if not loader:    
+                if rank == 0: print(f"{size} MPI ranks will each run on {perrank} frames of the trajectory")
+                print(f"Rank {rank}: start at frame {rank_start}, end at frame {rank_end}")
+            
             ###
         
             ###start calculating
@@ -204,41 +214,49 @@ class Analyze(BaseHandle):
 
             x = []
         
-            if rank == 0:
+            if rank == 0 and loader:
                 pbar.total=rank_end-rank_start
                 pbar.desc = f"Calculating {rank_end-rank_start} frames on each rank"
         
             for i in range(rank_start, rank_end):
                 u.trajectory[i]
                 x.append((i,func(u)))
-                if rank == 0: pbar.update(1)
+                if rank == 0 and loader: pbar.update(1)
     
-            if rank == 0: pbar.close()
+            if rank == 0 and loader: pbar.close()
             ###
-        
             ###gather results into rank 0
-            result = comm.gather(x,root=0)
-
+            
+            arr_size = len(pickle.dumps(x, -1))*size
+            if arr_size > 2000000000:
+                raise Exception(f"Total size of result greater than 2 GB, cannot gather!")
+                
+            result = comm.gather(x, root=0)
+            
             if rank == 0:
                 flat = [item for sublist in result for item in sublist]
             
                 ##calculate extra frames not equally divided among ranks
-                l = len(flat)
+                l = len(flat) + start
                 if l < end_:
-                    pbar = tqdm(total=end_-l, desc=f"Calculating {end_-l} extra frames on rank 0", bar_format='{l_bar}{bar}|')
-                
+                    if loader:
+                        pbar = tqdm(total=end_-l, desc=f"Calculating {end_-l} extra frames on rank 0", bar_format='{l_bar}{bar}|')
+                    else:
+                        print(f"Calculating {end_-l} extra frames on rank")
+ 
                     for i in range(l, end_):
                         u.trajectory[i]
                         flat.append((i,func(u)))
-                        pbar.update(1)
+                        if loader: pbar.update(1)
+                
                 ##
-        
                 x = [i[1] for i in sorted(flat, key=lambda x: x[0])] # flatten nested list
-            
+                
                 if pkl_file != None: # pickle results    
                     print("Pickling..")
                     import pickle
                     pickle.dump(x, open(pkl_file, 'wb'))
+                    print("Done..")
             ###
                 
         return wrapper

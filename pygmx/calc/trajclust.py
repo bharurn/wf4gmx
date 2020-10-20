@@ -3,15 +3,17 @@ import pandas as pd
     
 class TrajClust:
     
-    def __init__(self):
-        self.df = None
+    def __init__(self, data):
+        self.df = data
     
-    def pca(self, u, sele):
+    @staticmethod
+    def pca(u, error, sele):
         import MDAnalysis.analysis.pca as pca
+
         uni_pca = pca.PCA(u, select=sele)
         uni_pca.run()
 
-        n_pcs = np.where(uni_pca.cumulated_variance > 0.95)[0][0]
+        n_pcs = np.where(uni_pca.cumulated_variance > error)[0][0]
         atomgroup = u.select_atoms(sele)
         pca_space = uni_pca.transform(atomgroup, n_components=n_pcs)
 
