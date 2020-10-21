@@ -10,7 +10,7 @@ module to protonate ligands and convert sdf to pdf
 from . import _hndlpdb as hpdb
 from .._global import _Global as _global
 import re
-from mimicpy.utils.errors import ExecutionError
+from ..utils.errors import ExecutionError
 
 def _cleanPdb(sdf, pdb):
     _global.logger.write('debug', "Assigning correct atom names..")
