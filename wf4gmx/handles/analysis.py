@@ -12,7 +12,7 @@ class Analyze(BaseHandle):
         super().__init__(status_file, status)
         self.__getMpt(mpt_file)
         
-        if trr is None:
+        if trr_files is None:
             trr_files = self.gethistory('trr')[::-1]
         elif not isinstance(trr_files, list):
             trr_files = [trr_files]
