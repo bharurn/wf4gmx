@@ -8,16 +8,25 @@ from mimicpy import Mpt
 from ..scripts.trr import read_trr, get_trr_frames, TRRReader
 
 class Analyze(BaseHandle):
-    def __init__(self, status_file=None, status=None):
+    def __init__(self, mpt_file=None, trr_files=None, status_file=None, status=None):
         super().__init__(status_file, status)
-        self.__getMpt()
-        self.trr = self.gethistory('trr')[0]
-        self.frames = get_trr_frames(self.trr)
+        self.__getMpt(mpt_file)
         
-    def __getMpt(self):
-        file = self.getcurrent('mpt', exp=False)
-        if not file:
-            file = self.getcurrent('top')
+        if trr is None:
+            trr_files = self.gethistory('trr')[::-1]
+        elif not isinstance(trr_files, list):
+            trr_files = [trr_files]
+            
+        each_trr_frames = [get_trr_frames(trr) for trr in trr_files]
+        self.trrs = list(zip(trr_files, each_trr_frames))
+        
+        self.nframes = sum(each_trr_frames)
+        
+    def __getMpt(self, file):
+        if file is None:
+            file = self.getcurrent('mpt', exp=False)
+            if not file:
+                file = self.getcurrent('top')
         
         self.mpt = Mpt.from_file(file)
         
@@ -32,31 +41,44 @@ class Analyze(BaseHandle):
             self.u = mda.Universe(files[0], files[1:])
     
     @staticmethod
-    def select_single_frame(sele, trr_file, frame):
+    def get_frame(sele, trr_files, frame):
         ids = sele.index - 1
-        trr_data = read_trr(trr_file, frame)
+
+        frames_so_far = 0
+        trr_file_names, nframes = list(zip(*trr_files))
+        trr_data = None
+        for i, f in enumerate(nframes):
+            if frame < frames_so_far+f:
+                trr_data = read_trr(trr_file_names[i], frame-frames_so_far)
+                break
+            else:
+                frames_so_far += f
+        
+        if trr_data is None:
+            raise Exception("Requested frame is greater than total number of frames.")
+
         return SelectedFrame({k:v for k,v in trr_data.items() if k != 'x'}, sele, 
                                   trr_data['x'][ids])
         
     def select(self, selection, frame=0):
         sele = self.mpt.select(selection)
-        return Analyze.select_single_frame(sele, self.trr, frame)
+        return Analyze.get_frame(sele, self.trrs, frame)
     
     def selectMany(self, selection, client, calc=None, frame_start=0, frame_stop=None, asFutures=False):
         
         sele = self.mpt.select(selection)
         
-        if frame_stop is None: frame_stop = self.frames
+        if frame_stop is None: frame_stop = self.nframes
         
         if calc:
-            do = lambda sele, trr_file, frame: calc(Analyze.select_single_frame(sele, trr_file, frame))
+            do = lambda sele, trr_file, frame: calc(Analyze.get_frame(sele, trr_file, frame))
         else:
-            do = lambda sele, trr_file, frame: Analyze.select_single_frame(sele, trr_file, frame)
+            do = lambda sele, trr_file, frame: Analyze.get_frame(sele, trr_file, frame)
         
         if asFutures:
-            return [client.submit( do, client.scatter(sele), client.scatter(self.trr), i ) for i in range(frame_start, frame_stop)]
+            return [client.submit( do, client.scatter(sele), client.scatter(self.trrs), i ) for i in range(frame_start, frame_stop)]
         else:
-            return [client.submit( do, client.scatter(sele), client.scatter(self.trr), i ).result() for i in range(frame_start, frame_stop)]
+            return [client.submit( do, client.scatter(sele), client.scatter(self.trrs), i ).result() for i in range(frame_start, frame_stop)]
         
             
     @staticmethod

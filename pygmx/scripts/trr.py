@@ -19,8 +19,11 @@ DATA_ITEMS = ('box_size', 'vir_size', 'pres_size',
 
 class TRRReader():
     def __init__(self, filename):
+        self._filename = filename
         self.__fileh = open(filename, 'rb')
         self.__header = None
+        
+        self.__get_nframes(os.path.getsize(filename))
         
     def close(self):
         if hasattr(self, '__fileh'):
@@ -29,7 +32,7 @@ class TRRReader():
     def __del__(self):
         self.close()
 
-    def read_frame(self, read_data=True):
+    def read_frame(self, read_data=True, frame=None):
         """Read a new frame from the file.
         Parameters
         ---------
@@ -37,6 +40,9 @@ class TRRReader():
             If False, we will not read the data, just the header and
             skip forward to the next header position.
         """
+        if frame is not None:
+            self.__fileh.seek(self._frame_size*frame)
+            
         self.__header = self.__read_trr_header()
         if read_data:
             data = self.__read_trr_data()
@@ -45,6 +51,17 @@ class TRRReader():
             data = {}
         full_data = {**self.__header, **data}
         return full_data
+    
+    def __get_nframes(self, tot_size):
+        self.read_frame()
+        self._frame_size = self.__fileh.tell()
+        nframes = tot_size/self._frame_size
+        
+        if not nframes.is_integer():
+            self.nframes = None
+            raise Exception("Frames are not equally sized")
+           
+        self.nframes = int(nframes)-1
     
     def __read_trr_data(self):
         """Read box, coordinates etc. from a TRR file.
@@ -269,26 +286,10 @@ class TRRReader():
             raise ValueError('Undefined swap!')
 
 def read_trr(file, frame):
-    trr = TRRReader(file)
-    
-    for i in range(0, frame):
-            trr.read_frame(read_data=False)
-    
-    return trr.read_frame()
+    return TRRReader(file).read_frame(frame)
 
 def get_trr_frames(file):
-    trr = TRRReader(file)
-    
-    i = 0
-    while(1):
-        try:
-            trr.read_frame(read_data=False)
-        except EOFError:
-            trr.close()
-            break
-        i += 1
-        
-    return i-1
+    return TRRReader(file).nframes
 
 def check_trr(file):
     trr = TRRReader(file)
