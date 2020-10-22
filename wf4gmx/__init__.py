@@ -11,8 +11,8 @@ from .system.protein import Protein
 from .handles.prepare import Prepare
 from .handles.analysis import Analyze
 from .handles.simulate import MD, MiMiC
-from .scripts.slurm import Slurm
-from .scripts.mdp import MDP
+from .io.slurm import Slurm
+from .io.mdp import MDP
 from .shell.shell import Local, Remote
 from ._global import _Global as gbl
 from .utils.logger import Logger
@@ -40,7 +40,7 @@ def setEnv(**kwargs):
         if hasattr(gbl, k) and (k != 'host' or k != 'logger'):
             setattr(gbl, k, v)
         else:
-            raise MiMiCPyError(f"{k} is not an enviornment executable/path!")
+            raise MiMiCPyError(f"{k} is not an environment executable/path!")
 
 def setLogger(level, redirect=sys.stdout):
     """Set the logger level and stream"""

@@ -10,7 +10,7 @@ Slurm jobscripts
 
 from collections import OrderedDict 
 from ..utils.errors import ScriptError
-from .base import Script
+from mimicpy.scripts.script import Script
 from .._global import _Global as gbl
 from abc import ABC, abstractmethod
 

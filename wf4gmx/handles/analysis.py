@@ -5,7 +5,7 @@ import re
 import pandas as pd
 import numpy as np
 from mimicpy import Mpt
-from ..scripts.trr import read_trr, get_trr_frames, TRRReader
+from ..io.trr import read_trr, get_trr_frames, TRRReader
 
 class Analyze(BaseHandle):
     def __init__(self, mpt_file=None, trr_files=None, status_file=None, status=None):
@@ -30,16 +30,6 @@ class Analyze(BaseHandle):
         
         self.mpt = Mpt.from_file(file)
         
-    def getUni(self):
-        try:
-            files = [self.getcurrent('tpr')]
-            files += self.gethistory('trr')[::-1]
-        except FileNotFoundError as e:
-            self.u = None
-        else:
-            import MDAnalysis as mda
-            self.u = mda.Universe(files[0], files[1:])
-    
     @staticmethod
     def get_frame(sele, trr_files, frame):
         ids = sele.index - 1
