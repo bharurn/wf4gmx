@@ -3,21 +3,27 @@ from dask.distributed import Client
 import numpy as np
 
 class PCA:
-    def __init__(self, uni, sele, explain=0.95, calc=True):
-        ### Using Dask with MPI 
-        initialize() # init dask mpi
-        self.client = Client()  # MPI compatible client
-        ###
-        
-        self.u = uni
+    def __init__(self, analyze, sele, client, frame_start=0, frame_stop=None, explain=0.95, calc=True):
+        self.a = analyze
         self.sele = sele
+        self.client = client
+        self.frame_start = frame_start
+        self.frame_stop = frame_stop
         self.explain = explain
+        
+        self.nframes = self.a.nframes
+        self.natoms = len(self.a.mpt.select(sele))
 
         if calc:
-            self.calc_mean()
-            self.calc_cov()
+            print("***Starting***")
+            self.get_mean()
+            print("***Mean calculated***")
+            self.get_cov()
+            print("***Covariance matrix calculated***")
             self.svd()
+            print("***SVD performed***")
             self.transform()
+            print("***Coordinates transformed***")
         else:
             self.mean = None
             self.cov = None
@@ -26,70 +32,43 @@ class PCA:
             self.dim = None
             self.coords = None
 
-    def calc_mean():
-        futures = []
-
-        for i in range(len(self.u.trajectory)):
-            self.u.trajectory[i]
-            # parallelize ravel operation on positions array for each timestep
-            future = client.submit(lambda pos: pos.ravel(), self.u.select_atoms(self.sele).atoms.positions)
-            futures.append(future)
-
-        self.mean = sum(client.gather(futures))/len(self.u.trajectory) # add positions for all timesteps and divide by tot. no.
+    def get_mean(self):
+        calculated = self.a.selectMany(self.sele, self.client, lambda x: x.positions.ravel(), self.frame_start, self.frame_stop)
+        self.mean = sum(calculated)/self.nframes # add positions for all timesteps and divide by tot. no.
 
     
-    def calc_cov():
-        def calc_cov(pos): # function to parallelize
-            x = pos.ravel() - mean # diff between positions and mean, at every time step
-            return np.dot(x[:, np.newaxis], x[:, np.newaxis].T) # dot product, i.e., (X-M)*(Y-M)
+    def get_cov(self):
+        mean = self.mean # can't pickle self.vars
+        def cov_calc(x): # function to parallelize
+            y = x.positions.ravel() - mean # diff between positions and mean, at every time step
+            return np.dot(y[:, np.newaxis], y[:, np.newaxis].T) # dot product, i.e., (X-M)*(Y-M)
     
-        cov_size = len(self.u.select_atoms(receptor).atoms)*3
+        cov_size = self.natoms*3
         self.cov = np.zeros((cov_size, cov_size))
 
-        # cannot parallelize the whole trajectory in one shot
-        # insufficient memeory for gathering all numpy arrays 
-        # so we split it in chunks of 1000
-
-        interval = 1000
-        for k in range(0, len(self.u.trajectory), interval):
-            end = k+interval
-            if end>len(self.u.trajectory): end = len(self.u.trajectory)
-    
-            futures = []
-    
-            print(f"Calculating for range {(k, end)}..")
-    
-            for i in range(k, end):
-                self.u.trajectory[i]
-                future = client.submit(calc_cov, self.u.select_atoms(self.sele).atoms.positions)
-                futures.append(future)
-
-            for i in client.gather(futures): self.cov += i # add dot products for all timesteps
-
-        self.cov /= len(self.u.trajectory) - 1 # divide by (tot. no. - 1)
+        calculated = self.a.selectMany(self.sele, self.client, cov_calc, self.frame_start, self.frame_stop)
+        for i in calculated: self.cov += i # add dot products for all timesteps
+        self.cov /= self.nframes - 1 # divide by (tot. no. - 1)
 
 
-    def svd():
-        e_vals, e_vects = np.linalg.eig(cov)
+    def svd(self):
+        e_vals, e_vects = np.linalg.eig(self.cov)
 
         sort_idx = np.argsort(e_vals)[::-1]
         self.variance = e_vals[sort_idx]
         self.p_components = e_vects[:, sort_idx] 
-        n = len(variance)
-        self.cumulated_variance = (np.cumsum(variance)/np.sum(variance))[:n]
+        n = len(self.variance)
+        self.cumulated_variance = (np.cumsum(self.variance)/np.sum(self.variance))[:n]
 
-        self.dim = np.where(cumulated_variance > self.explain)[0][0]
+        self.dim = np.where(self.cumulated_variance > self.explain)[0][0]
 
-    def transform():
-        def proj_calc(pos):
-            xyz = pos.ravel() - mean
-            return np.dot(xyz, p_components[:, :dim])
-
-        dots = []
-
-        for i in range(len(self.u.trajectory)):
-            self.u.trajectory[i]
-            future = client.submit(proj_calc, self.u.select_atoms(self.sele).atoms.positions)
-            dots.append(future)
+    def transform(self):
+        mean = self.mean
+        p_comp = self.p_components
+        dim = self.dim
         
-        self.coords = client.gather(dot)
+        def proj_calc(x):
+            xyz = x.positions.ravel() - mean
+            return np.dot(xyz, p_comp[:, :dim])
+
+        self.coords = self.a.selectMany(self.sele, self.client, proj_calc, self.frame_start, self.frame_stop)
