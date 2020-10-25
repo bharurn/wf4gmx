@@ -1,14 +1,11 @@
 from .base import BaseHandle
-from .._global import _Global as _global
-from ..utils.logger import LogString
-import re
-import pandas as pd
 import numpy as np
+import pandas as pd
 from mimicpy import Mpt
 from ..io.trr import read_trr, get_trr_frames, TRRReader
 
 class Analyze(BaseHandle):
-    def __init__(self, mpt_file=None, trr_files=None, status_file=None, status=None):
+    def __init__(self, mpt_file=None, trr_files=None, client=None, status_file=None, status=None):
         super().__init__(status_file, status)
         self.__getMpt(mpt_file)
         
@@ -21,6 +18,8 @@ class Analyze(BaseHandle):
         self.trrs = list(zip(trr_files, each_trr_frames))
         
         self.nframes = sum(each_trr_frames)
+        
+        self.client = client
         
     def __getMpt(self, file):
         if file is None:
@@ -46,33 +45,59 @@ class Analyze(BaseHandle):
         
         if trr_data is None:
             raise Exception("Requested frame is greater than total number of frames.")
-
-        return SelectedFrame({k:v for k,v in trr_data.items() if k != 'x'}, sele, 
-                                  trr_data['x'][ids])
         
-    def select(self, selection, frame=0):
+        x = trr_data['x'][ids] if 'x' in trr_data else np.array([])
+        v = trr_data['v'][ids] if 'v' in trr_data else np.array([])
+        f = trr_data['f'][ids] if 'f' in trr_data else np.array([])
+        
+        return SelectedFrame({k:v for k,v in trr_data.items() if k not in ['x', 'v', 'f']}, sele, x, v, f)
+        
+    def select(self, selection, calc=None, frame_start=0, frame_stop=None, asFutures=False, **kwargs):
         sele = self.mpt.select(selection)
-        return Analyze.get_frame(sele, self.trrs, frame)
-    
-    def selectMany(self, selection, client, calc=None, frame_start=0, frame_stop=None, asFutures=False):
-        
-        sele = self.mpt.select(selection)
-        
-        if frame_stop is None: frame_stop = self.nframes
         
         if calc:
-            do = lambda sele, trr_file, frame: calc(Analyze.get_frame(sele, trr_file, frame))
+            do = lambda sele, trr_file, frame, **kwargs: calc(Analyze.get_frame(sele, trr_file, frame), **kwargs)
         else:
             do = lambda sele, trr_file, frame: Analyze.get_frame(sele, trr_file, frame)
         
+        if frame_stop is None:
+            return do(sele, self.trrs, frame_start)
+        elif frame_stop == -1:
+            frame_stop = self.nframes
+        
+        if self.client is None:
+            return [do(sele, self.trrs, i) for i in range(frame_start, frame_stop)]
+        
         if asFutures:
-            return [client.submit( do, client.scatter(sele), client.scatter(self.trrs), i ) for i in range(frame_start, frame_stop)]
+            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ) for i in range(frame_start, frame_stop)]
         else:
-            return [client.submit( do, client.scatter(sele), client.scatter(self.trrs), i ).result() for i in range(frame_start, frame_stop)]
+            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ).result() for i in range(frame_start, frame_stop)]
+        
+    def selectMany(self, *selection, calc=None, frame_start=0, frame_stop=None, asFutures=False, **kwargs):
+        
+        sele = [self.mpt.select(s) for s in selection]
+        
+        if calc:
+            do = lambda sele, trr_file, frame, **kwargs: calc([Analyze.get_frame(s, trr_file, frame) for s in sele], **kwargs)
+        else:
+            do = lambda sele, trr_file, frame: [Analyze.get_frame(s, trr_file, frame) for s in sele]
+            
+        if frame_stop is None:
+            return do(sele, self.trrs, frame_start)
+        elif frame_stop == -1:
+            frame_stop = self.nframes
+        
+        if self.client is None:
+            return [do(sele, self.trrs, i) for i in range(frame_start, frame_stop)]
+        
+        if asFutures:
+            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ) for i in range(frame_start, frame_stop)]
+        else:
+            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ).result() for i in range(frame_start, frame_stop)]
         
             
     @staticmethod
-    def distribute(u, start, end, pkl_file, loader):
+    def mpi_distribute(u, start, end, pkl_file, loader):
         def wrapper(func):
         
             ###imports
@@ -165,7 +190,7 @@ class Analyze(BaseHandle):
     
 class SelectedFrame:
     
-    def __init__(self, header, df, positions):
+    def __init__(self, header, df, x, v, f):
         for k, v in header.items():
             setattr(self, k, v)
         self.natoms = len(df)
@@ -174,9 +199,11 @@ class SelectedFrame:
         
         for column in df:
             self.__repr_list.append(column)
-            setattr(self, column, df[column])
+            setattr(self, column, df[column].to_numpy())
         
-        self.positions = positions
+        self.positions = x
+        self.velocities = v
+        self.forces = f
     
     def __repr__(self):
         dct = {}
