@@ -286,7 +286,7 @@ class TRRReader():
             raise ValueError('Undefined swap!')
 
 def read_trr(file, frame):
-    return TRRReader(file).read_frame(frame)
+    return TRRReader(file).read_frame(frame=frame)
 
 def get_trr_frames(file):
     return TRRReader(file).nframes
