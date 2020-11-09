@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 from mimicpy import Mpt
 from ..io.trr import read_trr, get_trr_frames, TRRReader
+from os import path
+import pickle
+
 
 class Analyze(BaseHandle):
     def __init__(self, mpt_file=None, trr_files=None, client=None, status_file=None, status=None):
@@ -30,7 +33,12 @@ class Analyze(BaseHandle):
         self.mpt = Mpt.from_file(file)
         
     @staticmethod
-    def get_frame(sele, trr_files, frame):
+    def get_frame(sele, trr_files, frame, around=None):
+        if isinstance(sele, list) and len(sele) > 1:
+            return [Analyze.get_frame(s, trr_files, frame) for s in sele]
+        elif isinstance(sele, list):
+            sele = sele[0]
+        
         ids = sele.index - 1
 
         frames_so_far = 0
@@ -50,51 +58,65 @@ class Analyze(BaseHandle):
         v = trr_data['v'][ids] if 'v' in trr_data else np.array([])
         f = trr_data['f'][ids] if 'f' in trr_data else np.array([])
         
-        return SelectedFrame({k:v for k,v in trr_data.items() if k not in ['x', 'v', 'f']}, sele, x, v, f)
+        sele = SelectedFrame(trr_data['step'], trr_data['time'], sele, x, v, f)
         
-    def select(self, selection, calc=None, frame_start=0, frame_stop=None, asFutures=False, **kwargs):
-        sele = self.mpt.select(selection)
+        return sele
+    
+    @staticmethod
+    def log_pickle(x, file_name):
+        if file_name is None: return x
+        
+        xyz = np.array(x)
+        
+        try:
+            if path.isfile(file_name):
+                with open(file_name, 'rb') as f:
+                    try:
+                        old = pickle.load(f)
+                        xyz = np.vstack((old, xyz))
+                    except EOFError:
+                        pass
+
+            with open(file_name, 'wb') as f: pickle.dump(xyz, f)
+        except NameError:
+            pass
+        
+        return x
+        
+    def select(self, *selection, calc=None, frames=0, asFutures=False, **kwargs):
+        if isinstance(selection, str):
+            sele = self.mpt.select(selection)
+        else:
+            sele = [self.mpt.select(s) for s in selection]
+        
+        trr_file = self.trrs
         
         if calc:
-            do = lambda sele, trr_file, frame, **kwargs: calc(Analyze.get_frame(sele, trr_file, frame), **kwargs)
+            do = lambda frame, **kwargs: calc(Analyze.get_frame(sele, trr_file, frame), **kwargs)
         else:
-            do = lambda sele, trr_file, frame: Analyze.get_frame(sele, trr_file, frame)
+            do = lambda frame: Analyze.get_frame(sele, trr_file, frame)
         
-        if frame_stop is None:
-            return do(sele, self.trrs, frame_start)
-        elif frame_stop == -1:
-            frame_stop = self.nframes
-        
-        if self.client is None:
-            return [do(sele, self.trrs, i) for i in range(frame_start, frame_stop)]
-        
-        if asFutures:
-            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ) for i in range(frame_start, frame_stop)]
+        if isinstance(frames, int):
+            ret = do(frames)
+        elif self.client is None:
+            ret = [do(i) for i in frames]
+        elif asFutures:
+            ret = [self.client.submit(do, i, **kwargs) for i in frames]
         else:
-            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ).result() for i in range(frame_start, frame_stop)]
+            ret = [self.client.submit(do, i, **kwargs).result() for i in frames]
         
-    def selectMany(self, *selection, calc=None, frame_start=0, frame_stop=None, asFutures=False, **kwargs):
-        
-        sele = [self.mpt.select(s) for s in selection]
-        
-        if calc:
-            do = lambda sele, trr_file, frame, **kwargs: calc([Analyze.get_frame(s, trr_file, frame) for s in sele], **kwargs)
-        else:
-            do = lambda sele, trr_file, frame: [Analyze.get_frame(s, trr_file, frame) for s in sele]
+        return ret
+     
+    def write(self, file, *selection, calc=None, frame=0):
+        if not isinstance(frame, int):
+            raise Exception
             
-        if frame_stop is None:
-            return do(sele, self.trrs, frame_start)
-        elif frame_stop == -1:
-            frame_stop = self.nframes
+        sele_frame = self.select(*selection, calc=calc, frames=frame)
         
-        if self.client is None:
-            return [do(sele, self.trrs, i) for i in range(frame_start, frame_stop)]
-        
-        if asFutures:
-            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ) for i in range(frame_start, frame_stop)]
-        else:
-            return [self.client.submit( do, self.client.scatter(sele), self.client.scatter(self.trrs), i, **kwargs ).result() for i in range(frame_start, frame_stop)]
-        
+        if not isinstance(sele_frame, SelectedFrame):
+            raise Exception
+            
+        sele_frame.write(file)
             
     @staticmethod
     def mpi_distribute(u, start, end, pkl_file, loader):
@@ -190,10 +212,11 @@ class Analyze(BaseHandle):
     
 class SelectedFrame:
     
-    def __init__(self, header, df, x, v, f):
-        for k, v in header.items():
-            setattr(self, k, v)
+    def __init__(self, step, time, df, x, v, f):
+        self.step = step
+        self.time = time
         self.natoms = len(df)
+        self.ids = df.index.to_numpy()
         
         self.__repr_list = []
         
@@ -205,6 +228,30 @@ class SelectedFrame:
         self.velocities = v
         self.forces = f
     
+    def __getitem__(self, k):
+        if isinstance(k, int): k = [k]
+        dct = {}
+        for i in self.__repr_list:
+            dct[i] = getattr(self, i)[k]
+        mpt_df = pd.DataFrame(dct, index=self.ids[k])
+        
+        try:
+            pos = self.positions[k]
+        except IndexError:
+            pos = []
+        
+        try:
+            v = self.velocities[k]
+        except IndexError:
+            v = []
+        
+        try:
+            f = self.forces[k]
+        except IndexError:
+            f = []
+            
+        return SelectedFrame(self.step, self.time, mpt_df, pos, v, f)
+    
     def __repr__(self):
         dct = {}
         for i in self.__repr_list:
@@ -213,3 +260,37 @@ class SelectedFrame:
         dct['y'] = self.positions[:, 1]
         dct['z'] = self.positions[:, 2]
         return repr(pd.DataFrame(dct))
+    
+    def __add__(self, other):
+        dct = {}
+        for i in self.__repr_list:
+            dct[i] = np.append(getattr(self, i), getattr(other, i))
+        mpt_df = pd.DataFrame(dct, index=np.append(self.ids, other.ids))
+
+        pos = np.vstack((self.positions, other.positions))
+        v = np.vstack((self.velocities, other.velocities))
+        f = np.vstack((self.forces, other.forces))
+                              
+        return SelectedFrame(self.step, self.time, mpt_df, pos, v, f)
+    
+    def get_around(self, sele, dist=3):
+        cen = np.mean(self.positions, axis=0)
+        ids = np.where( np.linalg.norm(sele.positions - cen, axis=1) <= dist)[0].tolist()
+        return (self + sele[ids])
+
+    
+    def write(self, file):
+        dct = {}
+        for i in self.__repr_list:
+            dct[i] = getattr(self, i)
+        mpt_df = pd.DataFrame(dct)
+        mpt_df['id'] = self.ids
+        
+        dct = {}
+        dct['x'] = self.positions[:, 0]
+        dct['y'] = self.positions[:, 1]
+        dct['z'] = self.positions[:, 2]
+        coords_df = pd.DataFrame(dct)
+        coords_df['id'] = self.ids
+        from mimicpy import CoordsIO
+        CoordsIO(file, mode='w').write(mpt_df, coords_df)
