@@ -1,10 +1,11 @@
-from .base import BaseHandle
+from os import path
+import xmlrpc.client as xmlrpclib
+import pickle
 import numpy as np
 import pandas as pd
-from mimicpy import Mpt
+from mimicpy import Mpt, CoordsIO
+from .base import BaseHandle
 from ..io.trr import read_trr, get_trr_frames, TRRReader
-from os import path
-import pickle
 
 
 class Analyze(BaseHandle):
@@ -18,7 +19,7 @@ class Analyze(BaseHandle):
             trr_files = [trr_files]
             
         each_trr_frames = [get_trr_frames(trr) for trr in trr_files]
-        self.trrs = list(zip(trr_files, each_trr_frames))
+        self._trrs = list(zip(trr_files, each_trr_frames))
         
         self.nframes = sum(each_trr_frames)
         
@@ -33,7 +34,7 @@ class Analyze(BaseHandle):
         self.mpt = Mpt.from_file(file)
         
     @staticmethod
-    def get_frame(sele, trr_files, frame, around=None):
+    def __get_frame(sele, trr_files, frame):
         if isinstance(sele, list) and len(sele) > 1:
             return [Analyze.get_frame(s, trr_files, frame) for s in sele]
         elif isinstance(sele, list):
@@ -58,9 +59,7 @@ class Analyze(BaseHandle):
         v = trr_data['v'][ids] if 'v' in trr_data else np.array([])
         f = trr_data['f'][ids] if 'f' in trr_data else np.array([])
         
-        sele = SelectedFrame(trr_data['step'], trr_data['time'], sele, x, v, f)
-        
-        return sele
+        return SelectedFrame(trr_data['step'], trr_data['time'], trr_data['box'], sele, x, v, f)
     
     @staticmethod
     def log_pickle(x, file_name):
@@ -83,21 +82,21 @@ class Analyze(BaseHandle):
         
         return x
         
-    def select(self, *selection, calc=None, frames=0, asFutures=False, **kwargs):
+    def select(self, *selection, calc=None, frames=[], frame=0, asFutures=False, **kwargs):
         if isinstance(selection, str):
             sele = self.mpt.select(selection)
         else:
             sele = [self.mpt.select(s) for s in selection]
         
-        trr_file = self.trrs
+        trr_file = self._trrs
         
         if calc:
-            do = lambda frame, **kwargs: calc(Analyze.get_frame(sele, trr_file, frame), **kwargs)
+            do = lambda frame, **kwargs: calc(Analyze.__get_frame(sele, trr_file, frame), **kwargs)
         else:
-            do = lambda frame: Analyze.get_frame(sele, trr_file, frame)
+            do = lambda frame: Analyze.__get_frame(sele, trr_file, frame)
         
-        if isinstance(frames, int):
-            ret = do(frames)
+        if frames == []:
+            ret = do(frame)
         elif self.client is None:
             ret = [do(i) for i in frames]
         elif asFutures:
@@ -106,127 +105,67 @@ class Analyze(BaseHandle):
             ret = [self.client.submit(do, i, **kwargs).result() for i in frames]
         
         return ret
-     
-    def write(self, file, *selection, calc=None, frame=0):
-        if not isinstance(frame, int):
-            raise Exception
-            
-        sele_frame = self.select(*selection, calc=calc, frames=frame)
-        
-        if not isinstance(sele_frame, SelectedFrame):
-            raise Exception
-            
-        sele_frame.write(file)
-            
-    @staticmethod
-    def mpi_distribute(u, start, end, pkl_file, loader):
-        def wrapper(func):
-        
-            ###imports
-            from mpi4py import MPI
-            import pickle
-
-            comm = MPI.COMM_WORLD
-            rank = comm.Get_rank()
-            size = comm.Get_size()
-        
-            ###
-        
-            ###load files on rank 0
-            if rank == 0 and loader:
-                from tqdm import tqdm
-                pbar = tqdm(desc=f"Starting", bar_format='{l_bar}{bar}|')
-            else:
-                files = None
-            ###
-        
-            ###calculate start and end frames for each rank
-            if end == -1: end_ = len(u.trajectory)
-            else: end_ = end
-            
-            perrank = (end_-start)//size
-            
-            if perrank == 0:
-                raise Exception("The number of MPI ranks are too large for the trajectory! Reduce number of ranks or increase number of frames in the trajectory.")
-            
-            rank_start = start + rank*perrank
-            rank_end = start + (rank+1)*perrank
-            
-            if not loader:    
-                if rank == 0: print(f"{size} MPI ranks will each run on {perrank} frames of the trajectory")
-                print(f"Rank {rank}: start at frame {rank_start}, end at frame {rank_end}")
-            
-            ###
-        
-            ###start calculating
-            comm.Barrier()
-
-            x = []
-        
-            if rank == 0 and loader:
-                pbar.total=rank_end-rank_start
-                pbar.desc = f"Calculating {rank_end-rank_start} frames on each rank"
-        
-            for i in range(rank_start, rank_end):
-                u.trajectory[i]
-                x.append((i,func(u)))
-                if rank == 0 and loader: pbar.update(1)
     
-            if rank == 0 and loader: pbar.close()
-            ###
-            ###gather results into rank 0
+    def select_coords(self, selection, filename):
+        sele = self.mpt.select(selection)
+        ids = sele.index - 1
+        coords_handle = CoordsIO(filename, 'r')
+        box = np.diag(coords_handle.box)
+        
+        x = coords_handle.coords[['x','y','z']].to_numpy()[ids]
+        try:
+            v = coords_handle.coords[['v_x','v_y','v_z']].to_numpy()[ids]
+        except KeyError:
+            v = np.array([])
             
-            arr_size = len(pickle.dumps(x, -1))*size
-            if arr_size > 2000000000:
-                raise Exception(f"Total size of result greater than 2 GB, cannot gather!")
-                
-            result = comm.gather(x, root=0)
-            
-            if rank == 0:
-                flat = [item for sublist in result for item in sublist]
-            
-                ##calculate extra frames not equally divided among ranks
-                l = len(flat) + start
-                if l < end_:
-                    if loader:
-                        pbar = tqdm(total=end_-l, desc=f"Calculating {end_-l} extra frames on rank 0", bar_format='{l_bar}{bar}|')
-                    else:
-                        print(f"Calculating {end_-l} extra frames on rank")
- 
-                    for i in range(l, end_):
-                        u.trajectory[i]
-                        flat.append((i,func(u)))
-                        if loader: pbar.update(1)
-                
-                ##
-                x = [i[1] for i in sorted(flat, key=lambda x: x[0])] # flatten nested list
-                
-                if pkl_file != None: # pickle results    
-                    print("Pickling..")
-                    import pickle
-                    pickle.dump(x, open(pkl_file, 'wb'))
-                    print("Done..")
-            ###
-                
-        return wrapper
-    
+        return SelectedFrame(0, 0, box, sele, x, v, np.array([]))
+
 class SelectedFrame:
     
-    def __init__(self, step, time, df, x, v, f):
+    def __init__(self, step, time, box, df, x, v, f):
         self.step = step
         self.time = time
+        self.box = box
         self.natoms = len(df)
-        self.ids = df.index.to_numpy()
+        if self.natoms == 1:
+            one_only = True
+        else:
+            one_only = False
+        
+        if one_only:
+            self.ids = df.index.to_numpy()[0]
+        else:
+            self.ids = df.index.to_numpy()
         
         self.__repr_list = []
         
         for column in df:
+            if column == 'resid': dtype = np.int32
+            elif column in ['charge', 'mass']: dtype = np.float32
+            else: dtype = np.str
             self.__repr_list.append(column)
-            setattr(self, column, df[column].to_numpy())
+            
+            if one_only:
+                setattr(self, column, df[column].to_numpy(dtype=dtype)[0])
+            else:
+                setattr(self, column, df[column].to_numpy(dtype=dtype))
         
-        self.positions = x
-        self.velocities = v
-        self.forces = f
+        if one_only and x != []:
+            self.positions = x[0]
+        else:
+            self.positions = x
+        
+        if one_only and v != []:
+            self.velocities = v[0]
+        else:
+            self.velocities = v
+        
+        if one_only and f != []:
+            self.forces = f[0]
+        else:
+            self.forces = f
+        self.i = 0
+        self.__pbc_box = None
     
     def __getitem__(self, k):
         if isinstance(k, int): k = [k]
@@ -237,29 +176,48 @@ class SelectedFrame:
         
         try:
             pos = self.positions[k]
-        except IndexError:
+        except (TypeError,IndexError):
             pos = []
         
         try:
             v = self.velocities[k]
-        except IndexError:
+        except (TypeError,IndexError):
             v = []
         
         try:
             f = self.forces[k]
-        except IndexError:
+        except (TypeError,IndexError):
             f = []
             
-        return SelectedFrame(self.step, self.time, mpt_df, pos, v, f)
+        return SelectedFrame(self.step, self.time, self.box, mpt_df, pos, v, f)
     
+    def sort(self, by=None, in_place=True):
+        if by is None:
+            by = self.ids
+        sorted_ids = np.argsort(by)
+        frame = self.__getitem__(sorted_ids)
+        if in_place:
+            self.__dict__.update(frame.__dict__)
+        else:
+            return frame
+        
     def __repr__(self):
-        dct = {}
-        for i in self.__repr_list:
-            dct[i] = getattr(self, i)
-        dct['x'] = self.positions[:, 0]
-        dct['y'] = self.positions[:, 1]
-        dct['z'] = self.positions[:, 2]
-        return repr(pd.DataFrame(dct))
+        s = f"\tStep: {self.step}\tTime: {self.time}\t#Atoms: {self.natoms}\n==========================================================\n\n"
+
+        for k in self._SelectedFrame__repr_list:
+            v = getattr(self, k)
+            s += f"{k}: {v}\n"
+
+        if self.positions.size != 0:
+            s += f"\nPositions:\n==========\n{self.positions}\n"
+
+        if self.velocities.size != 0:
+            s += f"\nVelocities:\n==========\n{self.velocities}\n"
+
+        if self.forces.size != 0:
+            s += f"\nForces:\n==========\n{self.forces}\n"
+        
+        return s
     
     def __add__(self, other):
         dct = {}
@@ -271,15 +229,32 @@ class SelectedFrame:
         v = np.vstack((self.velocities, other.velocities))
         f = np.vstack((self.forces, other.forces))
                               
-        return SelectedFrame(self.step, self.time, mpt_df, pos, v, f)
+        return SelectedFrame(self.step, self.time, self.box, mpt_df, pos, v, f)
     
-    def get_around(self, sele, dist=3):
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        num = self.i
+        self.i += 1
+        if self.i > self.natoms:
+            self.i = 0
+            raise StopIteration
+            
+        return self.__getitem__(num)
+    
+    def get_around(self, sele, dist=3, inplace=True):
         cen = np.mean(self.positions, axis=0)
         ids = np.where( np.linalg.norm(sele.positions - cen, axis=1) <= dist)[0].tolist()
-        return (self + sele[ids])
+        if inplace:
+            return (self + sele[ids])
+        else:
+            return sele[ids]
 
+    def where(self, bool_id):
+        return self.__getitem__(np.where(bool_id)[0].tolist())
     
-    def write(self, file):
+    def write(self, file, extension='gro'):
         dct = {}
         for i in self.__repr_list:
             dct[i] = getattr(self, i)
@@ -292,5 +267,103 @@ class SelectedFrame:
         dct['z'] = self.positions[:, 2]
         coords_df = pd.DataFrame(dct)
         coords_df['id'] = self.ids
-        from mimicpy import CoordsIO
-        CoordsIO(file, mode='w').write(mpt_df, coords_df)
+        
+        if file is None:
+            return CoordsIO('dummy.'+extension, mode='w').write(mpt_df, coords_df, as_str=True)
+        else:
+            CoordsIO(file, mode='w').write(mpt_df, coords_df)
+        
+    def to_pymol(self, url='http://localhost:9123', name='mol1'):
+        pymol = xmlrpclib.ServerProxy('http://localhost:9123')
+        pymol.zoom()
+        
+        s = self.write(None).replace('\n','@')
+        
+        try:
+            pymol.do(f'wf4gmx_load("{s}", "{name}")')
+        except Fault:
+            raise Exception("wf4gmx pymol file not sourced")
+    
+    def rmsd(self, other):
+        pos1 = self.positions
+        pos2 = other.positions
+        if pos1.shape != pos2.shape:
+            raise Exception
+        N = pos1.shape[0]
+        
+        pos1 = pos1 - np.average(pos1, axis=0)
+        pos2 = pos2 - np.average(pos2, axis=0)
+        
+        return np.sqrt(np.sum((pos1 - pos2) ** 2) / N)
+    
+    def __get_subset(self, s, frame):
+            b = [frame.box[0,0], frame.box[1,1], frame.box[2,2]]
+
+            box = [(b[0],0), (b[1],0), (b[2],0)]
+
+            tup = (int(s[0]), int(s[1]), int(s[2]))
+
+            for i, t in enumerate(tup):
+                if t == 1:
+                    box[i] = (b[i]/2, -b[i]/2) 
+
+            return frame.where(
+                (frame.positions[:, 0] <= box[0][0]) & 
+                (frame.positions[:, 0] >= box[0][1]) & 
+                (frame.positions[:, 1] <= box[1][0]) & 
+                (frame.positions[:, 1] >= box[1][1]) & 
+                (frame.positions[:, 2] <= box[2][0]) & 
+                (frame.positions[:, 2] >= box[2][1])).sort(in_place=False)
+        
+    def __get_images(self):
+        b1, b2, b3 = self.box[0,0], self.box[1,1], self.box[2,2]
+        
+        import copy
+        sele1 = copy.deepcopy(self)
+        sele2 = copy.deepcopy(self)
+        sele3 = copy.deepcopy(self)
+        sele4 = copy.deepcopy(self)
+        sele5 = copy.deepcopy(self)
+        sele6 = copy.deepcopy(self)
+        sele7 = copy.deepcopy(self)
+        
+        sele1.positions[:,0] -= b1
+        sele2.positions[:,1] -= b2
+        sele3.positions[:,2] -= b3
+
+        sele4.positions[:,0] -= b1
+        sele4.positions[:,1] -= b2
+
+        sele5.positions[:,0] -= b1
+        sele5.positions[:,2] -= b3
+
+        sele6.positions[:,0] -= b1
+        sele6.positions[:,1] -= b2
+        sele6.positions[:,2] -= b3
+
+        sele7.positions[:,1] -= b2
+        sele7.positions[:,2] -= b3
+        
+        return self+sele1+sele2+sele3+sele4+sele5+sele6+sele7
+        
+    def fix_pbc(self, ref, in_place=True):
+        sel = self.__get_images()
+        
+        if ref.__pbc_box is None:
+            rmsd = {}
+            for i in range(7):
+                s = "{0:03b}".format(i)
+                e = self.__get_subset(s, sel)
+                rmsd[s] = [e, e.rmsd(ref)]
+
+            min_rmsd = min(rmsd, key=lambda x: rmsd[x][1])
+            frame = rmsd[min_rmsd][0]
+            frame.__pbc_box = min_rmsd
+        else:
+            frame = self.__get_subset(ref.__pbc_box, sel)
+            frame.__pbc_box = ref.__pbc_box
+        
+        if in_place:
+            self.__dict__.update(frame.__dict__)
+        else:
+            return frame
