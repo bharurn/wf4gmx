@@ -217,6 +217,8 @@ class Local(Base):
     
     def dirname(self, file): return os.path.dirname(file)
     
+    def split(self, file): return os.path.split(file)
+    
     # provided to match remote.__del__()
     def __del__(self): pass
 
@@ -281,3 +283,5 @@ class Remote(remote.Shell, Base):
     def dirname(self, file):
         # see comment in join()
         return "/".join(i for i in file.split('/')[:-1])
+    
+    def split(self, file): raise NotImplementedError
