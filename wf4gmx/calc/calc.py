@@ -19,6 +19,16 @@ def get_dist_between(x, cutoff=3):
                  for resid, resname, name in zip( sele.resid[ids], sele.resname[ids], sele.name[ids] )]
     
     return conv(sele1, ids[0]), conv(sele2, ids[1]), vals
+
+def get_angle(x):
+    a,b,c = x
+    ba = a.positions - b.positions
+    bc = c.positions - b.positions
+
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
+    angle = np.arccos(cosine_angle)
+
+    return np.degrees(angle)
     
 def pairwise_fingerprint(x, nres=3, cutoff=10):    
     da1 = get_dist_between(x, cutoff=cutoff)
@@ -40,3 +50,19 @@ def pairwise_fingerprint(x, nres=3, cutoff=10):
     vals = df.groupby('Ligand').transform(min_n).dropna()['Dist'].to_numpy()
         
     return vals
+
+def centroid_rad(x):
+    if hasattr(x, 'positions'):
+        points = x.positions
+    else:
+        points = x
+    cen = np.mean(points, axis=0)
+    dists = np.linalg.norm(points - cen, axis=1)
+    farthest = points[np.argmax(dists), :]
+    rad = np.linalg.norm(farthest - cen)
+    return cen, rad
+
+def get_whole_waters(waters):
+    unique, counts = np.unique(waters.resid, return_counts=True)
+    resid_to_be_dropped = unique[np.where(counts != 3)]
+    return waters.where(~np.isin(waters.resid, resid_to_be_dropped))
